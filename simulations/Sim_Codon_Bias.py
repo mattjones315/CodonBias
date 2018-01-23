@@ -6,6 +6,50 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle as pic
 import statsmodels.stats.multitest as smm
+import pandas as pd
+
+
+class ContextDistribution:
+
+	def __init__(self, kmer_len, _type):
+
+		self.kmer_len = kmer_len
+		self.type = _type
+
+	def createDistribution(self, codons):
+
+		probs = np.ones(len(codons)) / (len(codons))
+
+		context = createContext(codons)
+
+		if self.typ == "GC":
+			context = self.createContext(codons)
+			probs = self.drawProbsGC(context)
+
+		return probs
+
+	def createContext(self, codons):
+
+		bases = np.array(["A", "C", "G", "T"])
+		context_codons = pd.DataFrame(np.array((codons)), index=codons)
+
+		for c in context_codons.index:
+			context = np.random.choice(bases, 4)
+
+			# Create new codon of cBBBccc
+			new_codon = context[0] + c + context[1] + context[2] + context[3]
+			context_codons.loc[c] = new_codon
+
+		return context_codons
+
+
+
+	def drawProbsGC(self, context):
+		C = len(context)
+		cnames = context.iloc[:,0].tolist()
+		probs = pd.DataFrame(np.ones((C, C)) / C, index=cnames, columns=cnames)
+
+		return None
 
 
 class Statistics:
@@ -21,29 +65,33 @@ class Statistics:
 
 		if self.test == "simple":
 
-			return self.singleSignificance()
+			return self.singleSignificance(N)
 
 		elif self.test == "mult":
 
 			return self.multipleSignificance(N)
 
+		elif self.test == "context":
+
+			return self.contextSignificance(N)
+
 		else:
 
 			return 1.0
 
-	def singleSignificance(self):
+	def singleSignificance(self, N):
 		"""
 		Runs a Chi squared test under the most basic null - expecting equal probability transitioning a single
 		codon to all other possible codons.
 		"""
-
+		C = len(self.counts)
 		expected = np.repeat(float(sum(self.counts)) / len(self.counts), len(self.counts))
 
 		chisq = sum(((expected  - self.counts)**2 / expected))
-		
-		pv = st.chisquare(self.counts, f_exp=expected)
+		pv = 1 - st.chi2.cdf(chisq, C-1)
+		#pv = st.chisquare(self.counts, f_exp=expected)
 
-		return pv[1], chisq
+		return pv, chisq
 
 	def multipleSignificance(self, N):
 		"""
@@ -55,11 +103,24 @@ class Statistics:
 		expected = np.repeat(N, C)
 
 		chisq = sum( ( (expected - self.counts)**2 / expected) )
-		pv = st.chisquare(self.counts, f_exp=expected, ddof=1)
-		print(self.counts)
-		print(expected)
-		return pv[1], chisq
+		#pv = st.chisquare(self.counts, f_exp=expected)
+		pv = 1 - st.chi2.cdf(chisq, C-1)
+		#print(self.counts)
+		#print(expected)
+		return pv, chisq
 
+	def contextSignificance(self, N):
+
+		## Create null transition matrix
+		names = self.counts.index
+		cdist = ContextDistribution(names, "GC")
+		context_probs = cdist.drawCreateDistribution(names)
+
+
+		pv = 0
+		chisq = 0
+
+		return pv, chisq
 
 def parseArgs():
 	"""
@@ -69,6 +130,7 @@ def parseArgs():
 	parser = argparse.ArgumentParser(prog="SimCodonBias", description = "Simulate Codon Bias")
 
 	parser.add_argument("--input", help="Input Codon File")
+	parser.add_argument("--context", help="Run simulation with input file", action="store_true")
 	parser.add_argument("--single", help="Run Basic Simulation", action="store_true")
 	parser.add_argument("--mult", help="Run Simulation with Many Mutation Events", action="store_true")
 	parser.add_argument("-n", help="Number of mutation events to simulate", default=1e8)
@@ -82,9 +144,9 @@ def parseArgs():
 
 
 
-def runMultSim(N=1e8, bias=0, num_codons=4, mut_rate = 1.1e-8):
+def runMultSim(N=1e8, bias=0, C=4, mut_rate = 1.1e-8):
 	"""
-	Run Mult simulation, where we have NUM_CODONS codons which can all mutate to one another with some 
+	Run Mult simulation, where we have C codons which can all mutate to one another with some 
 	probability influenced by BIAS.  
 
 	We'll randomly draw a vector different transition probabilities, corresponding to the mutation rate from
@@ -98,25 +160,31 @@ def runMultSim(N=1e8, bias=0, num_codons=4, mut_rate = 1.1e-8):
 	to mutate according to the transition probabilities. 
 	"""
 
-	
-	counts = np.zeros(num_codons) # instantate count matrix
-	bcodon = np.random.randint(0, num_codons, 1) # choose random codon to be biased
+	counts = np.zeros(C) # instantate count matrix
+	bcodon = np.random.randint(0, C, 1) # choose random codon to be biased
 
 	# Create probability vectors for each codon
-	probs = np.zeros((num_codons, num_codons))
-	for c in np.arange(num_codons):
-		bias_prob = float((1 + bias*(num_codons - 1))) / (num_codons - 1)
-		p = np.repeat((1.0 - bias_prob)/(num_codons-2), num_codons, axis=0)
-		p[bcodon] = bias_prob
-		p[c] = 0
-		probs[c,:] = p
 
-	for i in range(int(N)):
-		for j in range(num_codons):
-			mut_i = np.random.choice(num_codons, p=probs[j,:])
+	if C == 2:
+		probs = np.ones((C, C))
+		probs[1,1], probs[0,0] = 0.0, 0.0
+
+	else:
+		probs = np.zeros((C, C))
+		for c in np.arange(C):
+			bias_prob = float((1 + bias*(C - 1))) / (C - 1)
+			p = np.repeat((1.0 - bias_prob)/(C-2), C, axis=0)
+			p[bcodon] = bias_prob
+			p[c] = 0
+			probs[c,:] = p
+
+	for c in range(C):
+		for i in range(int(N)):
+			mut_i = np.random.choice(C, p=probs[c,:])
 			counts[mut_i] += 1
 
-	return counts
+	freqs = counts / sum(counts)
+	return counts, freqs
 
 def runSingleSim(N=1e8, bias=0, num_codons=4, mut_rate=1.1e-8):
 	"""
@@ -143,23 +211,34 @@ def runSingleSim(N=1e8, bias=0, num_codons=4, mut_rate=1.1e-8):
 	freqs = counts / sum(counts)
 	return counts, freqs
 
-def runCustomSim(names, probs, N=1e8):
+def runContextSim(names, freqs, N=1e8):
 	"""
-	Run a Custom Simulation, where we have already read in a set of codon names and probabilities. 
+	Run a Context Simulation, where we have already read in a set of codon names and frequencies. 
 
 	For N iterations, we'll compare the results of mutating to a codon proportional to the probabilities
 	read in and the null model, here defined in relation to a mutated codon's 7 nucleotide context. 
 	"""
 
-	counts = np.zeros(num_codons)
+	counts = {}
+	C = len(names)
+
 	
-	return None
+	## Create the transition matrix according to FREQS
+	#probs = pd.DataFrame(np.zeros((C, C)), index=names, columns=names)
+
+
+	### Mutate according to probabilities in FREQS -- multiply N * FREQS
+	counts = N * freqs
+	
+	return counts, freqs
 
 
 def parseInputFile(inp):
 
-	probs = np.loadtxt(inp, skiprows=1, usecols=1)
-	names = np.loadtxt(inp, skiprows=1, usecols=0, dtype="str")
+	
+	data = pd.read_csv(inp, delimiter="\t", index_col=0)
+	names = data.index
+	probs = data[data.columns[0]].tolist()
 
 	return names, probs
 
@@ -182,7 +261,6 @@ def plot_results(tvec, pvec, power, bias, plot):
 
 	elif plot == "qqplot":
 		opv = -1.0 * np.log10(np.sort(pvec))
-		print(np.arange(len(opv)) / len(opv))
 		epv = -1.0 * np.log10(np.arange(1, 1+len(opv))/len(opv))
 		plt.plot(epv, opv, "r.")
 		plt.plot(epv, epv, "k-")
@@ -216,31 +294,30 @@ def main():
 		pvalues = {}
 		tvalues = {}
 		power = {}
-		for C in np.arange(3, 42, step=3):
-			pvec = list()
-			tvec = list()
+		pvec = list()
+		tvec = list()
 
-			for i in range(1000):
-				print(i)
-				counts, freqs = runSingleSim(N=N, bias=bias, mut_rate=mut_rate, num_codons=C)
-				test = Statistics(counts, freqs, "simple")
-				pv, tstat = test.significance()
-				pvec.append(pv)
-				tvec.append(tstat)
-			pvec = np.array(pvec)
-			## Correct for mutliple hypothesis testing
-			#pvec = smm.multipletests(pvec, alpha=0.05, method="fdr_bh")[1]
-			tvec = np.array(tvec)
-			print(np.mean(pvec))
-			print(np.mean(tvec))
+		for i in range(1000):
+			print(i)
+			counts, freqs = runSingleSim(N=N, bias=bias, mut_rate=mut_rate, num_codons=C)
+			test = Statistics(counts, freqs, "simple")
+			pv, tstat = test.significance(N)
+			pvec.append(pv)
+			tvec.append(tstat)
+		pvec = np.array(pvec)
+		## Correct for mutliple hypothesis testing
+		#pvec = smm.multipletests(pvec, alpha=0.05, method="fdr_bh")[1]
+		tvec = np.array(tvec)
+		#print(np.mean(pvec))
+		#print(np.mean(tvec))
 
-			#pvalues[b] = pvec 
-			#tvalues[b] = tvec
-			power[C] = len(np.where(pvec < 0.05)[0]) / len(pvec)
+		#pvalues[b] = pvec 
+		#tvalues[b] = tvec
+		#power[C] = len(np.where(pvec < 0.05)[0]) / len(pvec)
 
-			#plot_results(tvec, pvec, power, bias, "chi-squared")
-			#plot_results(tvec, pvec, power, bias, "p_dist")
-			#plot_results(tvec, pvec, power, bias, "qqplot")
+		#plot_results(tvec, pvec, power, bias, "chi-squared")
+		plot_results(tvec, pvec, power, bias, "p_dist")
+		plot_results(tvec, pvec, power, bias, "qqplot")
 
 		#plot_results(None, None, power, "power")
 
@@ -250,29 +327,33 @@ def main():
 		pvalues = {}
 		tvalues = {}
 		power = {}
+		
 		pvec = list()
 		tvec = list()
 		for i in np.arange(1000):
 			print(i)
-			results = runMultSim(N=N, bias=bias, mut_rate=mut_rate, num_codons=C)
-			test = Statistics(results, None, "mult")
+			counts, freqs = runMultSim(N=N, bias=bias, mut_rate=mut_rate, C=C)
+			print(freqs)
+			test = Statistics(counts, freqs, "mult")
 			pv, tstat = test.significance(N)
 			pvec.append(pv)
 			tvec.append(tstat)
 		
 		pvec = np.array(pvec)
 		tvec = np.array(tvec)
-
-		plot_results(tvec, pvec, power, bias, "chi-squared")
+		#tvalues[C] = tvec
+		np.savetxt("teststat.txt", tvec, delimiter="\t")
+		#pic.dump(tvalues, open("tvalues.pkl", "wb"))
+		#plot_results(tvec, pvec, power, bias, "chi-squared")
 		plot_results(tvec, pvec, power, bias, "p_dist")
 		plot_results(tvec, pvec, power, bias, "qqplot")
 
-	elif args["custom"]:
-		names, probs = parseInputFile(args["input_file"])
+	elif args["context"]:
+		names, freqs = parseInputFile(args["input"])
 
-		results = runCustomSim(names, probs, N=N)
+		counts, freqs = runContextSim(names, probs, N=N)
 		test = Statistics(results, None, "context")
-		pv, tstat = test.significance()
+		pv, tstat = test.significance(N)
 
 
 
