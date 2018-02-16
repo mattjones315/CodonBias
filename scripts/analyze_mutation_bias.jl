@@ -45,8 +45,7 @@ function apply_colwise_chisq(e_freqs, o_counts)
         expected = zeros(Float64, 4, 1);
         for i in 1:nrow(e_freqs)
             observed[i] = convert(Float64, o_counts[i, j]);
-            expected[i] = o_counts[i, j] * e_freqs[i, j];
-
+            expected[i] = convert(Float64, o_counts[i, j]) * e_freqs[i, j];
         end
 
         # Calculate chisq test statistic
