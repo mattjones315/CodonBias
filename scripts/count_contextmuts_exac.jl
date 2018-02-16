@@ -1,31 +1,31 @@
 using DataFrames;
 using FastaIO;
 
-exac_fp = ARGS[2];
+exac_fp = ARGS[1];
 
 # Read in all chromosome fasta files
-chr1 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr1.fa.gz");
-chr2 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr2.fa.gz");
-chr3 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr3.fa.gz");
-chr4 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr4.fa.gz");
-chr5 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr5.fa.gz");
-chr6 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr6.fa.gz");
-chr7 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr7.fa.gz");
-chr8 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr8.fa.gz");
-chr9 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr9.fa.gz");
-chr10 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr10.fa.gz");
-chr11 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr11.fa.gz");
-chr12 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr12.fa.gz");
-chr13 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr13.fa.gz");
-chr14 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr14.fa.gz");
-chr15 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr15.fa.gz");
-chr16 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr16.fa.gz");
-chr17 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr17.fa.gz");
-chr18 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr18.fa.gz");
-chr19 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr19.fa.gz");
-chr20 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr20.fa.gz");
-chr21 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr21.fa.gz");
-chr22 = readfasta("/ye/netapp/jimmie.ye/ref/genomes/hg19/chr22.fa.gz");
+chr1 = readfasta("/hg19/chr1.fa.gz");
+chr2 = readfasta("/hg19/chr2.fa.gz");
+chr3 = readfasta("/hg19/chr3.fa.gz");
+chr4 = readfasta("/hg19/chr4.fa.gz");
+chr5 = readfasta("/hg19/chr5.fa.gz");
+chr6 = readfasta("/hg19/chr6.fa.gz");
+chr7 = readfasta("/hg19/chr7.fa.gz");
+chr8 = readfasta("/hg19/chr8.fa.gz");
+chr9 = readfasta("/hg19/chr9.fa.gz");
+chr10 = readfasta("/hg19/chr10.fa.gz");
+chr11 = readfasta("/hg19/chr11.fa.gz");
+chr12 = readfasta("/hg19/chr12.fa.gz");
+chr13 = readfasta("/hg19/chr13.fa.gz");
+chr14 = readfasta("/hg19/chr14.fa.gz");
+chr15 = readfasta("/hg19/chr15.fa.gz");
+chr16 = readfasta("/hg19/chr16.fa.gz");
+chr17 = readfasta("/hg19/chr17.fa.gz");
+chr18 = readfasta("/hg19/chr18.fa.gz");
+chr19 = readfasta("/hg19/chr19.fa.gz");
+chr20 = readfasta("/hg19/chr20.fa.gz");
+chr21 = readfasta("/hg19/chr21.fa.gz");
+chr22 = readfasta("/hg19/chr22.fa.gz");
 
 const chrdict = Dict(1 => chr1, 2 => chr2, 3 => chr3, 4 => chr4,
                 5 => chr5, 6 => chr6, 7 => chr7, 8 => chr8,

@@ -76,12 +76,9 @@ function apply_colwise_chisq(e_freqs, o_counts)
 end
 
 results = apply_colwise_chisq(background_freqs, exac_counts);
-pvalues_df = DataFrame(results[2]);
-pvalues_df[:,:context] = names(background_freqs)[2:end]
+pvalues_df = DataFrame(pvalues = results[2][:,1]);
+tstat_df = DataFrame(tstat =results[1][:,1]);
+context = DataFrame(context = names(background_freqs)[2:end]);
+resultdf = hcat(context, pvalues_df, tstat_df);
 
-tstat_df = DataFrame(results[1]);
-tstat_df[:,:context] = names(background_freqs)[2:end]
-
-
-writetable(string("pvals.", out_fp), pvalues_df, separator='\t');
-writetable(string("chisq.", out_fp), tstat_df, separator='\t');
+writetable(out_fp, resultdf, separator='\t');
