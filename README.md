@@ -15,7 +15,7 @@ or fork it into your own profile.
 We require Julia >= 0.6.1, R >= 3.4, and Python >= 3.6. Still working on putting together an anaconda environment for this repo, stay tuned...
 
 ## Authors
-* ** Matt Jones** * 
+* Matt Jones 
 
 ## License
 This project is licensed under the MIT License - LICENSE.md coming for more details.
