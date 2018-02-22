@@ -43,7 +43,7 @@ const chrdict = Dict(1 => chr1, 2 => chr2, 3 => chr3, 4 => chr4,
                 9 => chr9, 10 => chr10, 11 => chr11, 12 => chr12,
                 13 => chr13, 14 => chr14, 15 => chr15, 16 => chr16,
                 17 => chr17, 18 => chr18, 19 => chr19, 20 => chr20,
-                21 => chr21, 22 => chr22);
+                21 => chr21, 22 => chr22, 23 => chrX);
 
 const COMP = Dict('A' => 'T', 'T' => 'A', 'C' => 'G', 'G' => 'C');
 
@@ -96,8 +96,11 @@ for i in 1:length(df[:,:POS])
     if length(df[i,:REF]) > 1 || length(df[i,:ALT]) > 1
         continue
     end
-
-    chrnum = parse(Int, df[i,:CHROM]);
+    if df[i,:CHROM] == "X"
+        chrnum = 23;
+    else
+        chrnum = parse(Int, df[i,:CHROM]);
+    end
     pos = parse(Int, df[i,:POS]);
 
     context = get_context(chrnum, pos, 3);

@@ -1,12 +1,34 @@
 using DataFrames;
 using Distributions;
+using CSV;
 
 exac_counts_fp = ARGS[1];
 bg_fp = ARGS[2];
-out_fp = ARGS[3];
+cmap_fp = ARGS[3];
+out_fp = ARGS[4];
 
-exac_counts = readtable(exac_counts_fp, separator='\t', header=true);
-background_counts = readtable(bg_fp, separator='\t', header=true);
+function parse_context_file(cmap_fp)
+    # Takes in a file that maps each codon to all possible contexts for this
+    # count matrix. Mapping is helpful for running the Chi-squared test for
+    # significance later.
+    cmap = open(cmap_fp);
+    lines = readlines(cmap);
+    map_dict = Dict()
+
+    for l in lines
+        lsplit = split(l)
+        codon = lsplit[1]
+        map_dict[codon] = lsplit[2:end]
+    end
+
+    map_dict
+
+end
+
+context_codon_map = parse_context_file(cmap_fp);
+
+exac_counts = CSV.read(exac_counts_fp, delim='\t', header=true);
+background_counts = CSV.read(bg_fp, delim='\t', header=true);
 
 background_freqs = DataFrame(zeros(size(background_counts)));
 rename!(background_freqs, f => t for (f,t) = zip(names(background_freqs),
@@ -26,7 +48,7 @@ function apply_colwise_chisq(e_freqs, o_counts)
     #=
     For each column, we'll run a chi squared test:
         1. Multiply the freq (empirical prob) of the e_freqs column / nt pair
-        by the number of times you observed the mutation event in o_counts
+        by the number of times you observed mutations in o_counts
         2. Apply a chi squared test
     E_FREQS and O_COUNTS should be the same dimension - NT x N_CONTEXT
     =#
@@ -74,10 +96,77 @@ function apply_colwise_chisq(e_freqs, o_counts)
     chisq, pvalues
 end
 
-results = apply_colwise_chisq(background_freqs, exac_counts);
-pvalues_df = DataFrame(pvalues = results[2][:,1]);
-tstat_df = DataFrame(tstat =results[1][:,1]);
-context = DataFrame(context = names(background_freqs)[2:end]);
-resultdf = hcat(context, pvalues_df, tstat_df);
+function count_colwise(df)
+
+    #=
+    Return column-wise sums for the dataframe DF.
+
+    Useful because the column wise operations can be a little confusing in Julia,
+    and it might be nice to abstract out this function for changing later.
+    =#
+
+    counts = colwise(sum, df);
+    return counts;
+
+end
+
+function apply_contextwise_chisq(e_freqs, o_counts, mapping)
+
+    C = length(mapping)
+    chisq = zeros(C)
+    pvalues = zeros(C)
+	observed = DataFrame(Float64, 0, C);
+	expected = DataFrame(Float64, 0, C);
+
+	names!(observed, [Symbol(n) for n in e_freqs[:,:NT]])
+	names!(expected, [Symbol(n) for n in e_freqs[:,:NT]])
+
+	codons = DataFrame(Codon = collect(keys(mapping)));
+
+    map_keys = collect(keys(mapping));
+
+    for m in 1:length(map_keys)
+        cs = mapping[map_keys[m]];
+        e = e_freqs[:, [Symbol(k) for k in cs]];
+        o = o_counts[:, [Symbol(k) for k in cs]];
+        o_total_counts = count_colwise(o);
+        e_counts = zeros(Float64, 4, length(cs));
+
+        for i in 1:length(cs)
+            e_counts[:, i] = e[:, i] * o_total_counts[i];
+        end
+        #e_counts = DataFrame(e_counts);
+        e_counts = [sum(e_counts[i,:]) for i in 1:size(e_counts, 1)];
+        o = [sum(Array(o)[i,:]) for i in 1:size(o, 1)];
+
+		push!(observed, o);
+
+		push!(expected, e_counts)
+
+        tstat = 0.0
+        for i in 1:length(e_counts)
+            if e_counts[i] == 0
+                continue
+            end
+            tstat += (e_counts[i] - o[i])^2 / (e_counts[i])
+        end
+        chisq[m] = tstat
+        pvalues[m] = 1.0 - cdf(Chisq(2), chisq[m])
+    end
+
+	observed = hcat(codons, observed);
+	expected = hcat(codons, expected);
+
+    chisq, pvalues, observed, expected
+end
+
+results = apply_contextwise_chisq(background_freqs, exac_counts, context_codon_map);
+#tcounts_background = DataFrame(background_counts = count_colwise(background_counts[:,2:end]));
+#tcounts_exac = DataFrame(exac = count_colwise(exac_counts[:,2:end]));
+pvalues_df = DataFrame(pvalues = results[2]);
+tstat_df = DataFrame(tstat = results[1]);
+codons = DataFrame(codon = collect(keys(context_codon_map)))
+#context = DataFrame(context = names(background_freqs)[2:end]);
+resultdf = hcat(codons, pvalues_df, tstat_df);
 
 writetable(out_fp, resultdf, separator='\t');

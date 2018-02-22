@@ -35,7 +35,6 @@ const chrdict = Dict(1 => chr1, 2 => chr2, 3 => chr3, 4 => chr4,
                 21 => chr21, 22 => chr22);
 
 const COMP = Dict('A' => 'T', 'T' => 'A', 'C' => 'G', 'G' => 'C');
-exac_fp = "Codons/codon_table_v1.txt";
 exac = readtable(exac_fp, separator='\t', header=true, nrows=3000);
 exac_passing = exac[exac[:,:filter] .== "PASS", :];
 exac_synonymous = exac_passing[exac_passing[:,:consequence] .== "synonymous_variant", :];
