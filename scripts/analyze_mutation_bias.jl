@@ -110,11 +110,23 @@ function count_colwise(df)
 
 end
 
-function apply_contextwise_chisq(e_freqs, o_counts, mapping)
+function count_rowise(df)
+
+    counts = df[:,2:end];
+    n_counts = [sum(Array(counts)[i,:]) for i in 1:size(counts, 1)];
+
+    n_counts
+
+end
+
+
+
+function apply_contextwise_chisq(e_freqs, o_counts, e_counts, mapping)
 
     C = length(mapping)
     chisq = zeros(C)
     pvalues = zeros(C)
+    bg = DataFrame(Float64, 0, C);
 	observed = DataFrame(Float64, 0, C);
 	expected = DataFrame(Float64, 0, C);
 
@@ -129,6 +141,7 @@ function apply_contextwise_chisq(e_freqs, o_counts, mapping)
         cs = mapping[map_keys[m]];
         e = e_freqs[:, [Symbol(k) for k in cs]];
         o = o_counts[:, [Symbol(k) for k in cs]];
+        b = o_counts[:, [Symbol(k) for k in cs]];
         o_total_counts = count_colwise(o);
         e_counts = zeros(Float64, 4, length(cs));
 
@@ -138,10 +151,13 @@ function apply_contextwise_chisq(e_freqs, o_counts, mapping)
         #e_counts = DataFrame(e_counts);
         e_counts = [sum(e_counts[i,:]) for i in 1:size(e_counts, 1)];
         o = [sum(Array(o)[i,:]) for i in 1:size(o, 1)];
+        b = [sum(Array(b)[i,:]) for i in 1:size(b, 1)];
 
 		push!(observed, o);
 
-		push!(expected, e_counts)
+		push!(expected, e_counts);
+
+        push!(bg, b);
 
         tstat = 0.0
         for i in 1:length(e_counts)
@@ -160,13 +176,12 @@ function apply_contextwise_chisq(e_freqs, o_counts, mapping)
     chisq, pvalues, observed, expected
 end
 
-results = apply_contextwise_chisq(background_freqs, exac_counts, context_codon_map);
-#tcounts_background = DataFrame(background_counts = count_colwise(background_counts[:,2:end]));
-#tcounts_exac = DataFrame(exac = count_colwise(exac_counts[:,2:end]));
+results = apply_contextwise_chisq(background_freqs, exac_counts, background_counts, context_codon_map);
+tcounts_background = DataFrame(background_counts = count_rowise(background_counts));
+tcounts_exac = DataFrame(exac = count_rowise(results[3]));
 pvalues_df = DataFrame(pvalues = results[2]);
 tstat_df = DataFrame(tstat = results[1]);
 codons = DataFrame(codon = collect(keys(context_codon_map)))
-#context = DataFrame(context = names(background_freqs)[2:end]);
-resultdf = hcat(codons, pvalues_df, tstat_df);
+resultdf = hcat(codons, pvalues_df, tstat_df, tcounts_background, tcounts_exac);
 
 writetable(out_fp, resultdf, separator='\t');
