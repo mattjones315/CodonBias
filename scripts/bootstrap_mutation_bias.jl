@@ -3,10 +3,13 @@ using Distributions;
 using CSV;
 using Gadfly;
 
-exac_counts_dir = ARGS[1];
-cmap_fp = ARGS[2];
+exac_counts_fp = "context_gene_3nt/gly.context_gene.3nt.txt";
+cmap_fp = "contexts/gly.context.txt";
+gene_counts = "confounders/gc.gly.context_gene.3nt.txt";
+#exac_counts_dir = ARGS[1];
+#cmap_fp = ARGS[2];
 
-B = 2000;
+B = 100;
 
 function parse_context_file(cmap_fp)
     # Takes in a file that maps each codon to all possible contexts for this
@@ -26,11 +29,161 @@ function parse_context_file(cmap_fp)
 
 end
 
+function compute_confounder_similarity(gs, gc)
+
+    simmat = zeros(Int, length(gs), length(gs))
+
+    for i in 1:length(gs)
+        for j in 1:length(gs)
+            simmat[i, j] = abs(g_weights[gs[i]] - g_weights[gs[j]])
+        end
+    end
+
+    simmat
+
+end
+
 context_codon_map = parse_context_file(cmap_fp);
 
-exac_files = readdir(exac_counts_dir);
+all_data = readtable(exac_counts_fp, separator='\t', header=true);
+gene_counts = readtable(gene_counts, separator='\t', header=true);
 
-function generate_bootstrap_samples(exac_files)
+genes_ = unique(all_data[:Gene]);
+genes = [];
+
+for g in genes_
+    if length(split(g, ";")) == 1
+        push!(genes, g)
+    end
+end
+
+# Convert gene_counts Dataframe to hash table for quicker lookup
+g_weights = Dict(i => 0 for i in genes);
+for g in 1:size(gene_counts, 1)
+    g_weights[gene_counts[:Gene][g]] = gene_counts[:Count][g]
+end
+
+gene_sim = compute_confounder_similarity(genes, gene_counts)
+
+
+function select_contexts(exac, bg, cmap)
+
+    map_keys = collect(keys(cmap));
+    syn = []
+    for m in 1:length(map_keys)
+        for c in cmap[map_keys[m]]
+            push!(syn, c)
+        end
+    end
+
+    exac_syn = exac[[Symbol("$k") for k in syn]]
+    bg_syn = bg[[Symbol("$k") for k in syn]]
+
+    exac_syn = hcat(DataFrame(NT = convert(Array, bg[:,:NT])),
+                                exac_syn);
+    bg_syn = hcat(DataFrame(NT = convert(Array, bg[:, :NT])),
+                                bg_syn);
+
+    # Hack to account for when degrees of freedom < 2
+    for i in 1:nrow(exac_syn)
+        for j in 2:ncol(exac_syn)
+            if exac_syn[i, j] == 0
+                bg_syn[i, j] = 0
+            end
+        end
+    end
+
+    exac_syn, bg_syn
+end
+
+function select_indices(N, K)
+    """
+    Select indices from N possible indices for two sets S1 and S2 such that both
+    S1 and S2 are of length K, and their weight (as determined by the gene_sim defined
+    above) are as equal as possible.
+    """
+
+    bg_ii = zeros(Int, K);
+    o_ii = zeros(Int, K);
+
+    pii = [i for i in 1:N]
+
+    for i in 1:K
+        b = rand(pii, 1)[1]
+        filter!(e -> e != b, pii)
+        o = findmin(gene_sim[b, pii])[2];
+        o = pii[o];
+        filter!(e -> e != o, pii)
+        bg_ii[i], o_ii[i] = b, o
+    end
+
+    bg_ii, o_ii
+end
+
+function compare_set_weights(s1, s2)
+
+    w1 = 0.0;
+    w2 = 0.0;
+
+    for g in s1
+        w1 += g_weights[g]
+    end
+
+    for g in s2
+        w2 += g_weights[g]
+    end
+
+    abs(w1 - w2)
+end
+
+
+function generate_bootstrap_samples(all_counts)
+    """
+    Let's sample half of the genes with replacement to be our "background" dist and
+    the other half to be the "observed" counts.
+    """
+
+    contexts = unique(all_counts[:Context]);
+
+    # bg_ii = rand(1:length(genes), fld(length(genes), 2))
+    # o_ii = setdiff([i for i in 1:length(genes)], bg_ii)
+    bg_ii = rand(1:length(genes), 5000);
+    o_ii = setdiff([i for i in 1:length(genes)], bg_ii);
+    o_ii = rand(o_ii, 5000);
+    #bg_ii, o_ii = select_indices(length(genes), 5000);
+
+    bg_genes = genes[bg_ii];
+    o_genes = genes[o_ii];
+
+    println(string("Confounder Diff: ", compare_set_weights(bg_genes, o_genes)));
+
+    bg_counts = all_counts[findin(all_counts[:Gene], bg_genes), :];
+    o_counts = all_counts[findin(all_counts[:Gene], o_genes), :];
+
+    bg_df = DataFrame(zeros(4, length(contexts)))
+    o_df = DataFrame(zeros(4, length(contexts)))
+
+    names!(bg_df, [Symbol("$k") for k in contexts])
+    names!(o_df, [Symbol("$k") for k in contexts])
+
+    for c in contexts
+
+        bg = colwise(sum, bg_counts[bg_counts[:Context] .== c, 3:end])
+        o = colwise(sum, o_counts[o_counts[:Context] .== c, 3:end])
+
+        for i in 1:4
+            bg_df[i, Symbol(c)] = bg[i][1];
+            o_df[i, Symbol(c)] = o[i][1];
+        end
+    end
+
+    o_df = hcat(DataFrame(NT = ["A", "T", "C", "G"]), o_df);
+    bg_df = hcat(DataFrame(NT = ["A", "T", "C", "G"]), bg_df);
+
+    o_df, bg_df
+end
+
+function generate_bootstrap_samples_chr(exac_files)
     """
     Let's select half of the chromosomes to be our 'background' dist and the other
     half to be the 'observed' counts.
@@ -65,7 +218,7 @@ function generate_bootstrap_samples(exac_files)
     observed_counts, background_counts
 end
 
-function apply_colwise_chisq(o_counts, bg_counts)
+function apply_colwise_chisq(o_counts, bg_counts, df)
 
     #=
     For each column, we'll run a chi squared test:
@@ -88,8 +241,7 @@ function apply_colwise_chisq(o_counts, bg_counts)
                                 e_freqs);
 
     o_total_counts = count_colwise(o_counts[:,2:end]);
-    e_counts = zeros(Float64, 4, 64);
-
+    e_counts = zeros(Float64, nrow(e_freqs), ncol(e_freqs)-1);
     for i in 1:nrow(e_freqs)
         for j in 2:ncol(e_freqs)
             e_counts[i, j-1] = e_freqs[i, j] * o_total_counts[j-1][1];
@@ -97,24 +249,25 @@ function apply_colwise_chisq(o_counts, bg_counts)
     end
 
     # Keep track of our chisquared test statistics and pvalues
-    chisq = zeros(Float64, 64, 1);
-    pvalues = zeros(Float64, 64, 1);
+    chisq = zeros(Float64, ncol(e_freqs)-1, 1);
+    pvalues = zeros(Float64, ncol(e_freqs)-1, 1);
     for j in 1:size(e_counts, 2)
 
         tstat = 0.0
         for i in 1:size(e_counts, 1)
-            if e_counts[i, j] == 0
+            if o_counts[i, j+1] == 0
                 continue
             end
 
             tstat += ((e_counts[i, j] - o_counts[i, j+1])^2) / e_counts[i, j][1]
         end
         chisq[j] = tstat
-        pvalues[j] = 1.0 - cdf(Chisq(2), tstat)
+        pvalues[j] = 1.0 - cdf(Chisq(df), tstat)
     end
 
     chisq, pvalues, e_counts, o_counts
 end
+
 
 function count_colwise(df)
 
@@ -219,18 +372,19 @@ function apply_contextwise_chisq(o_counts, bg_counts, mapping)
 end
 
 # Now let's bootstrap for B terationss
-pvalues = Array{Float64, 2}(B, 4);
-tvalues = Array{Float64, 2}(B, 4);
+pvalues = Array{Float64, 2}(B, 16);
+tvalues = Array{Float64, 2}(B, 16);
 for b in 1:B
 
     # give updates every 100 iterations of bootsrapping
-    if b % 100 == 0
+    if b % 1 == 0
         println(string("Bootstrap iteration: ", b))
     end
 
-    exac_counts, background_counts = generate_bootstrap_samples(exac_files);
+    exac_counts, background_counts = generate_bootstrap_samples(all_data);
+    exac_counts, background_counts = select_contexts(exac_counts, background_counts, context_codon_map)
 
-    results = apply_contextwise_chisq(exac_counts, background_counts, context_codon_map)
+    results = apply_colwise_chisq(exac_counts, background_counts, 2)
     #results = apply_colwise_chisq(exac_counts, background_counts)
     pvalues[b,:] = results[2];
     tvalues[b,:] = results[1];

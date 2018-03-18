@@ -1,5 +1,5 @@
 from __future__ import print_function, division
-import argparse 
+import argparse
 import os
 import scipy.stats as st
 import numpy as np
@@ -13,7 +13,7 @@ class ContextDistribution:
 
 	def __init__(self, mut_codon, codons, kmer_len=7, _type="greedy"):
 
-		## for now just assume that kmer length is 
+		## for now just assume that kmer length is
 		self.codons = codons
 		self.mut_codon = mut_codon
 		self.kmer_len = kmer_len
@@ -37,7 +37,7 @@ class ContextDistribution:
 	def createContext(self):
 
 		bases = np.array(["A", "C", "G", "T"])
-		
+
 		context = np.random.choice(bases, 4)
 
 		# Create new codon of cBBBccc
@@ -52,12 +52,12 @@ class ContextDistribution:
 
 	def drawProbsGreedy(self):
 		'''
-		Simple probability model, where the GC content of the resulting context gives an 
+		Simple probability model, where the GC content of the resulting context gives an
 		added fold increase in probability of mutation of 1.2. Every G/C awards this increase
-		in probability. 
+		in probability.
 
 		We scale at the end by dividing each probability by the total probability of a mutation occurring
-		from a given context to get probabilities summing to 1. 
+		from a given context to get probabilities summing to 1.
 		'''
 
 		C = len(self.codons)
@@ -90,7 +90,7 @@ class ContextDistribution:
 			mut_i = np.random.choice(self.codons, p=self.expected_probs)
 			self.null_observed[mut_i] += 1
 
-		freqs = self.null_observed / N 
+		freqs = self.null_observed / N
 		self.null_freqs = freqs
 
 
@@ -137,7 +137,7 @@ class Statistics:
 
 	def multipleSignificance(self, N):
 		'''
-		Runs a Chi Squared test under a basic null, expecting uniform transition probability from each codon to 
+		Runs a Chi Squared test under a basic null, expecting uniform transition probability from each codon to
 		all other codons.
 		'''
 
@@ -146,7 +146,7 @@ class Statistics:
 		expected = np.full((C,C), codon_muts / (C-1), dtype=float)
 		np.fill_diagonal(expected, 0)
 
-		chisq = ((expected - self.counts)**2 / expected) 
+		chisq = ((expected - self.counts)**2 / expected)
 		chisq = np.sum(np.nan_to_num(chisq), 1)
 		pv = 1 - st.chi2.cdf(chisq, C-2)
 		return pv, chisq
@@ -186,7 +186,7 @@ def runSingleSim(N=1e8, bias=0, num_codons=4, mut_rate=1.1e-8):
 	Run Simple Simulation, where for now we simulate a single amino acide which is coded by NUM_CODONS.
 
 	We'll draw a vector of different transition probabilities, corresponding to the relative probability of
-	a particular codon transitioning to another synonymous mutation. BIAS controls the amount of bias 
+	a particular codon transitioning to another synonymous mutation. BIAS controls the amount of bias
 	introduced to the system, manifested as a higher probability of mutation to a randomly selected codon.
 
 	We'll simulate over N generations and then return the frequency table.
@@ -209,18 +209,18 @@ def runSingleSim(N=1e8, bias=0, num_codons=4, mut_rate=1.1e-8):
 
 def runMultSim(N=1e8, bias=0, C=4, mut_rate = 1.1e-8):
 	'''
-	Run Mult simulation, where we have C codons which can all mutate to one another with some 
-	probability influenced by BIAS.  
+	Run Mult simulation, where we have C codons which can all mutate to one another with some
+	probability influenced by BIAS.
 
 	We'll randomly draw a vector different transition probabilities, corresponding to the mutation rate from
 	a single codon to the other NUM_CODONS-1 codons. Bias is a float number, between 0 and 1, which quantifies
 	the degree of bias to introduce when drawing these transition probabilities. 0 corresponds to 0 bias (i.e. uniform
 	probability of transition to each codon) and 1 represents only complete bias (i.e. only transition to one particular
-	codon). The codon to be treated as the "biased" codon will be chosen randomly. 
+	codon). The codon to be treated as the "biased" codon will be chosen randomly.
 
 	We'll then simulate over N mutation events, and then return the frequency table. We'll assume that all codons
 	are present in the population with equal frequency at the beginning (equal to N), and each codon will be allowed
-	to mutate according to the transition probabilities. 
+	to mutate according to the transition probabilities.
 	'''
 
 	counts = np.zeros((C,C)) # instantate count matrix
@@ -260,10 +260,10 @@ def runMultSim(N=1e8, bias=0, C=4, mut_rate = 1.1e-8):
 def runContextSim(names, _freqs, N=1e8):
 	'''
 	Run a Context Simulation, where we have already read in a set of codon names and frequencies (which are
-	treated as probabilites). 
+	treated as probabilites).
 
 	For N iterations, we'll compare the results of mutating to a codon proportional to the probabilities
-	read in and the null model, here defined in relation to a mutated codon's 7 nucleotide context. 
+	read in and the null model, here defined in relation to a mutated codon's 7 nucleotide context.
 	'''
 
 	C = len(names)
@@ -283,7 +283,7 @@ def runContextSim(names, _freqs, N=1e8):
 
 def parseInputFile(inp):
 
-	
+
 	data = pd.read_csv(inp, delimiter="\t", index_col=0)
 	names = data.index
 	probs = data[data.columns[0]].tolist()
@@ -297,7 +297,7 @@ def plot_results(tvec, pvec, power, bias, plot):
 		plt.xlabel("Chi Squared Statistic")
 		plt.ylabel("P value")
 		plt.title("Chi Squared Distribution, Bias = " + str(bias))
-		plt.show()	
+		plt.show()
 
 	elif plot == "p_dist":
 
@@ -361,7 +361,7 @@ def main():
 		#print(np.mean(pvec))
 		#print(np.mean(tvec))
 
-		#pvalues[b] = pvec 
+		#pvalues[b] = pvec
 		#tvalues[b] = tvec
 		#power[C] = len(np.where(pvec < 0.05)[0]) / len(pvec)
 
@@ -377,7 +377,7 @@ def main():
 		pvalues = {}
 		tvalues = {}
 		power = {}
-		
+
 		pvec = np.array([])
 		tvec = np.array([])
 		for i in np.arange(500):
@@ -387,7 +387,7 @@ def main():
 			pv, tstat = test.significance(N)
 			pvec = np.append(pvec, pv)
 			tvec = np.append(tvec, tstat)
-		
+
 		#tvalues[C] = tvec
 		#np.savetxt("teststat.txt", tvec, delimiter="\t")
 		#pic.dump(tvalues, open("tvalues.pkl", "wb"))
@@ -427,7 +427,7 @@ def main():
 
 	else:
 		print("Don't recognize simulation type")
-	
+
 	#plt.plot(pvalues.keys(), pvalues.values())
 	#plt.xlabel("Bias")
 	#plt.ylabel("Power")
@@ -436,16 +436,3 @@ def main():
 
 if __name__ == "__main__":
 	main();
-
-				
-
-
-
-
-
-
-
-
-
-	
-

@@ -27,8 +27,8 @@ end
 
 context_codon_map = parse_context_file(cmap_fp);
 
-exac_counts = CSV.read(exac_counts_fp, delim='\t', header=true);
-background_counts = CSV.read(bg_fp, delim='\t', header=true);
+exac_counts = CSV.read(exac_counts_fp, delim='\t', header=true, nullable=false);
+background_counts = CSV.read(bg_fp, delim='\t', header=true, nullable=false);
 
 background_freqs = DataFrame(zeros(size(background_counts)));
 rename!(background_freqs, f => t for (f,t) = zip(names(background_freqs),
@@ -43,7 +43,90 @@ for i in 1:size(background_counts, 1)
     end
 end
 
-function apply_colwise_chisq(e_freqs, o_counts)
+function generate_possible_contexts(K, prefix, contexts=[])
+
+    bp = ["A", "G", "T", "C"];
+    N = length(bp);
+
+    if K == 0
+        push!(contexts, prefix);
+        return(contexts);
+    end
+
+    for i in 1:N
+        nprefix = string(prefix, bp[i]);
+        push!(contexts, generate_possible_contexts(K-1, nprefix));
+    end
+
+    contexts
+end
+
+function unfold(A)
+    V = [];
+    for x in A
+        if length(x) == 1
+            push!(V, x[1]);
+        else
+            append!(V, unfold(x));
+        end
+    end
+    return(V);
+end
+
+function collapse_sequence(counts, k)
+
+    contexts = unfold(generate_possible_contexts(3, ""))
+    nt = DataFrame(NT=["A", "C", "G", "T"]);
+    count_matrix = repmat([0,0,0,0], 1, length(contexts));
+    count_matrix = DataFrame(count_matrix);
+    names!(count_matrix, [Symbol("$i") for i in contexts]);
+    count_matrix = hcat(nt, count_matrix);
+
+    l = length(string(names(counts)[2]));
+    mid = convert(Int, ceil(l / 2));
+    bal = convert(Int, fld(k, 2));
+
+    for c1 in names(count_matrix)[2:end]
+        for c2 in names(counts)[2:end]
+            if string(c2)[mid-bal:mid+bal] == string(c1)
+                for i in 1:nrow(counts)
+                    count_matrix[i, Symbol(c1)] += counts[i, Symbol(c2)]
+                end
+            end
+        end
+    end
+
+    count_matrix
+end
+
+function convert_to_R_dataframe(ocounts, ecounts)
+
+    odf = DataFrame(context = string.(names(ocounts)[2:end]),
+                    counts = convert(Array, ocounts[1, 2:end])[:],
+                    Sub = fill(ocounts[1,:NT], ncol(ocounts) - 1))
+    for i in 2:nrow(ocounts)
+        df2 = DataFrame(context = string.(names(ocounts)[2:end]),
+                        counts = convert(Array, ocounts[i, 2:end])[:],
+                        Sub = fill(ocounts[i,:NT], ncol(ocounts) - 1))
+        odf = vcat(odf, df2)
+    end
+
+    edf = DataFrame(context = string.(names(ocounts)[2:end]),
+                    counts = convert(Array, ecounts[1, 2:end])[:],
+                    Sub = fill(ocounts[1,:NT], ncol(ocounts) - 1))
+
+    for i in 2:nrow(ocounts)
+        df2 = DataFrame(context = string.(names(ocounts)[2:end]),
+                        counts = convert(Array, ecounts[i, 2:end])[:],
+                        Sub = fill(ocounts[i,:NT], ncol(ocounts) - 1))
+        edf = vcat(edf, df2)
+    end
+
+    odf, edf
+
+end
+
+function apply_colwise_chisq(o_counts, bg_counts, df)
 
     #=
     For each column, we'll run a chi squared test:
@@ -53,48 +136,47 @@ function apply_colwise_chisq(e_freqs, o_counts)
     E_FREQS and O_COUNTS should be the same dimension - NT x N_CONTEXT
     =#
 
+    e_freqs = zeros(Float64, size(bg_counts,1), size(bg_counts, 2)-1)
+    for i in 1:nrow(bg_counts)
+        for j in 2:ncol(bg_counts)
+            e_freqs[i, j-1] = bg_counts[i, j] / sum(bg_counts[:, j])
+        end
+    end
+    e_freqs = DataFrame(e_freqs)
+    rename!(e_freqs, f => t for (f,t) = zip(names(e_freqs),
+                                names(bg_counts)[2:end]));
+    e_freqs = hcat(DataFrame(NT = convert(Array, bg_counts[:,:NT])),
+                                e_freqs);
+
+    o_total_counts = count_colwise(o_counts[:,2:end]);
+    e_counts = zeros(Float64, nrow(e_freqs), ncol(e_freqs)-1);
+    for i in 1:nrow(e_freqs)
+        for j in 2:ncol(e_freqs)
+            e_counts[i, j-1] = e_freqs[i, j] * o_total_counts[j-1][1];
+        end
+    end
+
+
     # Keep track of our chisquared test statistics and pvalues
-    chisq = zeros(Float64, 64, 1)
-    pvalues = zeros(Float64, 64, 1)
+    chisq = zeros(Float64, ncol(e_freqs)-1, 1);
+    pvalues = zeros(Float64, ncol(e_freqs)-1, 1);
+    for j in 1:size(e_counts, 2)
 
-    for j in 2:ncol(e_freqs)
-        if sum(o_counts[:,j]) < 5
-            chisq[j] = NaN;
-            pvalues[j] = 1.0;
-            continue;
-        end
-        observed = zeros(Float64, 4, 1);
-        expected = zeros(Float64, 4, 1);
-        for i in 1:nrow(e_freqs)
-            observed[i] = convert(Float64, o_counts[i, j]);
-            expected[i] = convert(Float64, o_counts[i, j]) * e_freqs[i, j];
-        end
-
-        # Calculate chisq test statistic
         tstat = 0.0
-        for k in 1:length(observed)
-            if expected[k] == 0
+        for i in 1:size(e_counts, 1)
+            if o_counts[i, j+1] == 0
                 continue
             end
-            tstat += ((observed[k] - expected[k])^2 / expected[k]);
+
+            tstat += ((e_counts[i, j] - o_counts[i, j+1])^2) / e_counts[i, j][1]
         end
-        chisq[j-1] = tstat
+        chisq[j] = tstat
+        pvalues[j] = 1.0 - cdf(Chisq(df), tstat)
     end
 
-    # Calculate p value from chi squared test stat
-    for c in 1:length(chisq)
-        # if isnan, then we set the chisq test stat to NaN b/c there
-        # were not enough counts in column. This is an approximation,
-        # we could rather use Fisher's test to account for this
-
-        if isnan(chisq[c])
-            continue;
-        end
-        pvalues[c] = 1.0 - cdf(Chisq(2), chisq[c]);
-    end
-
-    chisq, pvalues
+    chisq, pvalues, e_counts, o_counts
 end
+
 
 function count_colwise(df)
 
@@ -119,6 +201,35 @@ function count_rowise(df)
 
 end
 
+function select_contexts(exac, bg, cmap)
+
+    map_keys = collect(keys(cmap));
+    syn = []
+    for m in 1:length(map_keys)
+        for c in cmap[map_keys[m]]
+            push!(syn, c)
+        end
+    end
+
+    exac_syn = exac[[Symbol("$k") for k in syn]]
+    bg_syn = bg[[Symbol("$k") for k in syn]]
+
+    exac_syn = hcat(DataFrame(NT = convert(Array, bg[:,:NT])),
+                                exac_syn);
+    bg_syn = hcat(DataFrame(NT = convert(Array, bg[:, :NT])),
+                                bg_syn);
+
+    # Hack to account for when degrees of freedom < 2
+    for i in 1:nrow(exac_syn)
+        for j in 2:ncol(exac_syn)
+            if exac_syn[i, j] == 0
+                bg_syn[i, j] = 0
+            end
+        end
+    end
+
+    exac_syn, bg_syn
+end
 
 
 function apply_contextwise_chisq(e_freqs, o_counts, e_counts, mapping)
@@ -161,7 +272,7 @@ function apply_contextwise_chisq(e_freqs, o_counts, e_counts, mapping)
 
         tstat = 0.0
         for i in 1:length(e_counts)
-            if e_counts[i] == 0
+            if o[i] == 0
                 continue
             end
             tstat += (e_counts[i] - o[i])^2 / (e_counts[i])
@@ -176,12 +287,54 @@ function apply_contextwise_chisq(e_freqs, o_counts, e_counts, mapping)
     chisq, pvalues, observed, expected
 end
 
-results = apply_contextwise_chisq(background_freqs, exac_counts, background_counts, context_codon_map);
-tcounts_background = DataFrame(background_counts = count_rowise(background_counts));
-tcounts_exac = DataFrame(exac = count_rowise(results[3]));
-pvalues_df = DataFrame(pvalues = results[2]);
-tstat_df = DataFrame(tstat = results[1]);
-codons = DataFrame(codon = collect(keys(context_codon_map)))
-resultdf = hcat(codons, pvalues_df, tstat_df, tcounts_background, tcounts_exac);
+function collapse_to_codon(data, mapping)
 
-writetable(out_fp, resultdf, separator='\t');
+    C = length(mapping)
+    codons = DataFrame(Codon = collect(keys(mapping)));
+    ndf = DataFrame(Float64, 4, 0)
+
+    map_keys = collect(keys(mapping));
+
+    for m in 1:length(map_keys)
+
+        cs = mapping[map_keys[m]];
+        counts = zeros(Float64, 4, length(cs));
+
+        for i in 1:length(cs)
+            counts[:, i] = data[:, Symbol(cs[i])];
+        end
+
+        counts = [sum(counts[i,:]) for i in 1:size(counts, 1)];
+
+		ndf = hcat(ndf, counts);
+
+    end
+    names!(ndf, [Symbol("$k") for k in map_keys])
+    ndf = hcat(DataFrame(NT = data[:NT]), ndf)
+    ndf
+
+end
+
+function compare_to_codons(results, mapping)
+
+    expected, observed = DataFrame(results[3]), results[4]
+    names!(expected, names(observed)[2:end])
+    expected = hcat(DataFrame(NT = observed[:NT]), expected)
+
+    o_codons = collapse_to_codon(observed, mapping)
+    e_codons = collapse_to_codon(expected, mapping)
+
+    o_codons, e_codons
+
+end
+
+
+# results = apply_contextwise_chisq(background_freqs, exac_counts, background_counts, context_codon_map);
+# tcounts_background = DataFrame(background_counts = count_rowise(background_counts));
+# tcounts_exac = DataFrame(exac = count_rowise(results[3]));
+# pvalues_df = DataFrame(pvalues = results[2]);
+# tstat_df = DataFrame(tstat = results[1]);
+# codons = DataFrame(codon = collect(keys(context_codon_map)))
+# resultdf = hcat(codons, pvalues_df, tstat_df, tcounts_background, tcounts_exac);
+#
+# writetable(out_fp, resultdf, separator='\t');
