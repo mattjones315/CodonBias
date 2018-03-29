@@ -4,7 +4,12 @@ require(biomaRt)
 require(Biostrings)
 
 ARGS = commandArgs(trailingOnly = T)
+
+## a file path containing the names of all canonical transcripts
 canonicalTranscripts = ARGS[[1]]
+
+## a file path containing the sequences of all transcripts
+
 transcriptSequences = ARGS[[2]]
 if (length(ARGS) == 3) {
   saveFile = ARGS[[3]]
@@ -90,7 +95,7 @@ CodonFreqTable.countCodons <- function(x, indices = list()) {
     toCount = x$sequences
   }
 
-  for (i in 1:length(toCount)) { 
+  for (i in 1:length(toCount)) {
     tf = trinucleotideFrequency(toCount[[i]], step=3)
     x$counts = x$counts + tf
   }
@@ -113,23 +118,23 @@ CodonFreqTable.normalizeByGroup <- function(x, norm.group = list()) {
   return(x)
 }
 
-## Create an object that will function in a graph structure, connecting codons (nodes) to other codons with 
+## Create an object that will function in a graph structure, connecting codons (nodes) to other codons with
 ## edges that indicate that synonymous mutation events can take place between them. Edge weights will represent the
-## frequency of these transitions. 
-CodonNode <- function(name="", 
+## frequency of these transitions.
+CodonNode <- function(name="",
                       mutations=list(),
-                      gene="", 
-                      pos="", 
+                      gene="",
+                      pos="",
                       siginif=list(),
                       frequencies=list()) {
   ## codon is the name of the codon
   ## mutations is a list mapping mutation -> counts of mutation
   ## frequencies is a list mapping mutation -> frequency of mutation
-  me = list(name=name, 
+  me = list(name=name,
             mutations=mutations,
             frequencies=frequencies,
-            gene=gene, 
-            pos=pos, 
+            gene=gene,
+            pos=pos,
             signif=signif)
   class(me) <- append(class(me), "CodonNode")
   return(me)
@@ -149,9 +154,9 @@ CodonNode.addMutation <- function(x, der_codon, syn) {
 }
 
 CodonNode.runHGT <- function(x) {
-  #' Runs a Hypergeometric test (HGT) on the given transition probabilities to assess 
+  #' Runs a Hypergeometric test (HGT) on the given transition probabilities to assess
   #' statistical significance.
-  
+
   return(1.0)
 }
 
@@ -176,9 +181,6 @@ cft = CodonFreqTable.countCodons(cft)
 
 cft = CodonFreqTable.normalizeByGroup(cft, norm.group=rev_codon_list)
 
+# we will save the counts of codon occurrences as well as their normalized frequencies
 saveRDS(list(counts = cft$counts,
               freqs = cft$frequencies), saveFile)
-
-
-
-

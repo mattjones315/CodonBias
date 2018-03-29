@@ -2,9 +2,16 @@ using DataFrames;
 using Distributions;
 using CSV;
 
+## Pass a file path that contains the counts of synonymous mutations found in ExAC
 exac_counts_fp = ARGS[1];
+
+## Pass a file path that contains the counts of "synonymous" mutations that will be treated as the null background
 bg_fp = ARGS[2];
+
+## Pass a context-codon mapping file, as seen in the contexts/ directory
 cmap_fp = ARGS[3];
+
+## The file path you wish to write out to.
 out_fp = ARGS[4];
 
 function parse_context_file(cmap_fp)
@@ -44,6 +51,10 @@ for i in 1:size(background_counts, 1)
 end
 
 function generate_possible_contexts(K, prefix, contexts=[])
+    """
+    This function will generate all possible K-length contexts. This is useful
+    for populating the initial count matrix.
+    """
 
     bp = ["A", "G", "T", "C"];
     N = length(bp);
@@ -62,6 +73,10 @@ function generate_possible_contexts(K, prefix, contexts=[])
 end
 
 function unfold(A)
+    """
+    A basic utility function for "unfolding" a list of lists.
+    """
+
     V = [];
     for x in A
         if length(x) == 1
@@ -74,8 +89,13 @@ function unfold(A)
 end
 
 function collapse_sequence(counts, k)
+    """
+    A utility function for collapsing some lmers to kmers count matrix. Very useful
+    for when you have counts for 5-mers, for example, but would like counts for 3-mers.
+    Takes the initial counts matrix COUNTS and your desired length of context K.
+    """
 
-    contexts = unfold(generate_possible_contexts(3, ""))
+    contexts = unfold(generate_possible_contexts(k, ""))
     nt = DataFrame(NT=["A", "C", "G", "T"]);
     count_matrix = repmat([0,0,0,0], 1, length(contexts));
     count_matrix = DataFrame(count_matrix);
@@ -100,6 +120,10 @@ function collapse_sequence(counts, k)
 end
 
 function convert_to_R_dataframe(ocounts, ecounts)
+    """
+    Utility function for converting a julia dataframe, as populated in this script,
+    to an R dataframe format that will be used for advanced plotting.
+    """
 
     odf = DataFrame(context = string.(names(ocounts)[2:end]),
                     counts = convert(Array, ocounts[1, 2:end])[:],
@@ -128,13 +152,13 @@ end
 
 function apply_colwise_chisq(o_counts, bg_counts, df)
 
-    #=
+    """
     For each column, we'll run a chi squared test:
         1. Multiply the freq (empirical prob) of the e_freqs column / nt pair
         by the number of times you observed mutations in o_counts
-        2. Apply a chi squared test
-    E_FREQS and O_COUNTS should be the same dimension - NT x N_CONTEXT
-    =#
+        2. Apply a chi squared test with DF degrees of freedom
+    BG_COUNTS and O_COUNTS should be the same dimension - NT x N_CONTEXT
+    """
 
     e_freqs = zeros(Float64, size(bg_counts,1), size(bg_counts, 2)-1)
     for i in 1:nrow(bg_counts)
@@ -180,12 +204,12 @@ end
 
 function count_colwise(df)
 
-    #=
+    """
     Return column-wise sums for the dataframe DF.
 
     Useful because the column wise operations can be a little confusing in Julia,
     and it might be nice to abstract out this function for changing later.
-    =#
+    """
 
     counts = colwise(sum, df);
     return counts;
@@ -193,6 +217,12 @@ function count_colwise(df)
 end
 
 function count_rowise(df)
+    """
+    Return row-wise sums for the dataframe DF.
+
+    Useful because the row wise operations can be a little confusing in Julia,
+    and it might be nice to abstract out this function for changing later.
+    """
 
     counts = df[:,2:end];
     n_counts = [sum(Array(counts)[i,:]) for i in 1:size(counts, 1)];
@@ -202,6 +232,12 @@ function count_rowise(df)
 end
 
 function select_contexts(exac, bg, cmap)
+    """
+    A utility function for only choosing some contexts to be considered for the future
+    statistical tests -- in particular, choosing synonymous contexts. It will choose
+    contexts according to the context-codon mapping in CMAP in both the observed count matrix
+    EXAC and background count matrix BG.
+    """
 
     map_keys = collect(keys(cmap));
     syn = []
@@ -232,7 +268,16 @@ function select_contexts(exac, bg, cmap)
 end
 
 
-function apply_contextwise_chisq(e_freqs, o_counts, e_counts, mapping)
+function apply_codonwise_chisq(e_freqs, o_counts, e_counts, mapping)
+    """
+    We'd like to apply a codon-wise chisq test, which is comprised of collapsing
+    all possible contexts for each codon and running the chi-squared test on the
+    codon level rather than the context level.
+
+    Takes E_FREQS as the expected frequencies, O_COUNTS as the observed counts, E_COUNTS
+    as the total number of "synonymous" mutations in the expected group, and the contect-codon
+    mapping MAPPING.
+    """
 
     C = length(mapping)
     chisq = zeros(C)
@@ -288,6 +333,10 @@ function apply_contextwise_chisq(e_freqs, o_counts, e_counts, mapping)
 end
 
 function collapse_to_codon(data, mapping)
+    """
+    Utility funciton for collapsing to the codon level from contexts using MAPPING.
+    Will aggregate counts in DATA accordingly.
+    """
 
     C = length(mapping)
     codons = DataFrame(Codon = collect(keys(mapping)));
@@ -316,6 +365,11 @@ function collapse_to_codon(data, mapping)
 end
 
 function compare_to_codons(results, mapping)
+    """
+    Utility function for taking the test-specific RESULTS and collapsing to codons from
+    contexts according to MAPPING. Useful if you'd like to tie some biological meaning
+    to the differences between group mutation rates at the codon level.
+    """
 
     expected, observed = DataFrame(results[3]), results[4]
     names!(expected, names(observed)[2:end])
@@ -328,13 +382,28 @@ function compare_to_codons(results, mapping)
 
 end
 
+function run_3mer_analysis(exac_counts, bg_counts, k, mapping, df)
+    """
+    Very simple pipeline for taking 5-mer counts and running a context-wise chi squared
+    test at the 3-mer level. Takes observed counts EXAC_COUNTS, background counts BG_COUNTS, which are
+    both 5-mer level counts and K the desired length of the k-mer to be studied (presumed to be 3 here).
 
-# results = apply_contextwise_chisq(background_freqs, exac_counts, background_counts, context_codon_map);
-# tcounts_background = DataFrame(background_counts = count_rowise(background_counts));
-# tcounts_exac = DataFrame(exac = count_rowise(results[3]));
-# pvalues_df = DataFrame(pvalues = results[2]);
-# tstat_df = DataFrame(tstat = results[1]);
-# codons = DataFrame(codon = collect(keys(context_codon_map)))
-# resultdf = hcat(codons, pvalues_df, tstat_df, tcounts_background, tcounts_exac);
-#
-# writetable(out_fp, resultdf, separator='\t');
+    Will collapse according to MAPPING and will run the chi-squared test with DF degress of freedom.
+
+    Will return the "observed" and "expected" dataframe after having been converted to
+    R-compatible dataframes for future plotting. 
+    """
+
+    c3nt = collapse_sequence(exac_counts,k);
+    b3nt = collapse_sequence(bg_counts, k);
+
+    c_syn, c_bg = select_contexts(c3nt, b3nt, mapping);
+
+    results = apply_colwise_chisq(c_syn, c_bg, df);
+    odf, edf = compare_to_codons(results, mapping);
+
+    odf, edf = convert_to_R_dataframe(odf, edf);
+
+    odf, edf
+
+end

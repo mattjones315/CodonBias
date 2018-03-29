@@ -29,19 +29,7 @@ function parse_context_file(cmap_fp)
 
 end
 
-function compute_confounder_similarity(gs, gc)
 
-    simmat = zeros(Int, length(gs), length(gs))
-
-    for i in 1:length(gs)
-        for j in 1:length(gs)
-            simmat[i, j] = abs(g_weights[gs[i]] - g_weights[gs[j]])
-        end
-    end
-
-    simmat
-
-end
 
 context_codon_map = parse_context_file(cmap_fp);
 
@@ -63,10 +51,35 @@ for g in 1:size(gene_counts, 1)
     g_weights[gene_counts[:Gene][g]] = gene_counts[:Count][g]
 end
 
+function compute_confounder_similarity(gs, gc)
+    """
+    Function to compute similarities between genes according to confounders. A similarity
+    matrix will be returned that is of dimension GS X GS and utilizes the confounder weights
+    computed above.
+    """
+
+    simmat = zeros(Int, length(gs), length(gs))
+
+    for i in 1:length(gs)
+        for j in 1:length(gs)
+            simmat[i, j] = abs(g_weights[gs[i]] - g_weights[gs[j]])
+        end
+    end
+
+    simmat
+
+end
+
 gene_sim = compute_confounder_similarity(genes, gene_counts)
 
 
 function select_contexts(exac, bg, cmap)
+    """
+    A utility function for only choosing some contexts to be considered for the future
+    statistical tests -- in particular, choosing synonymous contexts. It will choose
+    contexts according to the context-codon mapping in CMAP in both the observed count matrix
+    EXAC and background count matrix BG.
+    """
 
     map_keys = collect(keys(cmap));
     syn = []
@@ -121,6 +134,10 @@ function select_indices(N, K)
 end
 
 function compare_set_weights(s1, s2)
+    """
+    Utility for comparing the weights between two sets, making sure that confounders
+    are balanced out between them.
+    """
 
     w1 = 0.0;
     w2 = 0.0;
@@ -139,8 +156,8 @@ end
 
 function generate_bootstrap_samples(all_counts)
     """
-    Let's sample half of the genes with replacement to be our "background" dist and
-    the other half to be the "observed" counts.
+    Let's sample some of the genes without replacement to be our "background" dist and
+    some others (mutually exclusive from the first set) to be the "observed" counts.
     """
 
     contexts = unique(all_counts[:Context]);
@@ -220,13 +237,13 @@ end
 
 function apply_colwise_chisq(o_counts, bg_counts, df)
 
-    #=
+    """
     For each column, we'll run a chi squared test:
         1. Multiply the freq (empirical prob) of the e_freqs column / nt pair
         by the number of times you observed mutations in o_counts
-        2. Apply a chi squared test
-    E_FREQS and O_COUNTS should be the same dimension - NT x N_CONTEXT
-    =#
+        2. Apply a chi squared test with DF degrees of freedom
+    BG_COUNTS and O_COUNTS should be the same dimension - NT x N_CONTEXT
+    """
 
     e_freqs = zeros(Float64, size(bg_counts,1), size(bg_counts, 2)-1)
     for i in 1:nrow(bg_counts)
@@ -271,12 +288,12 @@ end
 
 function count_colwise(df)
 
-    #=
+    """
     Return column-wise sums for the dataframe DF.
 
     Useful because the column wise operations can be a little confusing in Julia,
     and it might be nice to abstract out this function for changing later.
-    =#
+    """
 
     counts = colwise(sum, df);
     return counts;
@@ -284,6 +301,12 @@ function count_colwise(df)
 end
 
 function count_rowwise(df)
+    """
+    Return row-wise sums for the dataframe DF.
+
+    Useful because the row wise operations can be a little confusing in Julia,
+    and it might be nice to abstract out this function for changing later.
+    """
 
     counts = df[:,2:end];
     n_counts = [sum(Array(counts)[i,:]) for i in 1:size(counts, 1)];
@@ -294,8 +317,15 @@ end
 
 
 
-function apply_contextwise_chisq(o_counts, bg_counts, mapping)
+function apply_codonwise_chisq(o_counts, bg_counts, mapping)
+    """
+    We'd like to apply a codon-wise chisq test, which is comprised of collapsing
+    all possible contexts for each codon and running the chi-squared test on the
+    codon level rather than the context level.
 
+    O_COUNTS as the observed counts, and BG_COUNTS as the backgorund counts of "synonymous" mutations,
+    and the contect-codon mapping MAPPING.
+    """
     C = length(mapping)
     chisq = zeros(C)
     pvalues = zeros(C)

@@ -19,10 +19,13 @@ class ContextDistribution:
 		self.kmer_len = kmer_len
 		self.type = _type
 		self.expected_probs = np.zeros(1)
+		self.observed_probs = np.zeros(1)
 		self.context_codon = ""
 		self.null_expected = np.zeros(1)
 		self.null_freqs = np.zeros(1)
+		self.observed_freqs = np.zeros(1)
 		self.null_observed = np.zeros(1)
+		self.observed = np.zeros(1)
 
 	def createDistribution(self):
 		#print(codons)
@@ -64,6 +67,7 @@ class ContextDistribution:
 
 		# initialize the transition matrix
 		probs = pd.DataFrame(np.ones((C)), index=self.codons).T
+		self.observed_probs = pd.DataFrame(np.array([.1, .8, .1]), index=self.codons).T.iloc[0,:]
 
 		# Add to probabilities according to GC content
 		for j in np.arange(C):
@@ -78,6 +82,7 @@ class ContextDistribution:
 
 		self.expected_probs = probs.iloc[0,:]
 
+
 	def simulateNull(self, N=1000):
 		C = len(self.codons)
 
@@ -91,8 +96,23 @@ class ContextDistribution:
 			self.null_observed[mut_i] += 1
 
 		freqs = self.null_observed / N
-		self.null_freqs = freqs
+		self.expected_freqs = freqs
 
+	def simulateNonNull(self, N=1000):
+		C = len(self.codons)
+
+		self.null_expected = pd.DataFrame(np.zeros((C)), index=self.codons).iloc[:,0]
+		self.observed = pd.DataFrame(np.zeros((C)), index=self.codons).iloc[:,0]
+
+		for i in range(N):
+			self.createDistribution()
+			print(self.expected_probs)
+			self.null_expected += self.expected_probs
+			mut_i = np.random.choice(self.codons, p=self.observed_probs)
+			self.observed[mut_i] += 1
+
+		self.observed_freqs = self.observed / N
+		self.expected_freqs = self.null_expected / N
 
 class Statistics:
 
@@ -155,8 +175,7 @@ class Statistics:
 
 		## Create null transition matrix
 		C = len(cdist.codons)
-		print(cdist.null_expected)
-		print(cdist.null_observed)
+
 		chisq = np.sum((cdist.null_expected - cdist.null_observed)**2 / cdist.null_expected)
 		pv = 1 - st.chi2.cdf(chisq, C-1)
 		return pv, chisq
